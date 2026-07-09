@@ -1,4 +1,4 @@
-import { PackageManager, PipelineSpec } from './types';
+import { BaseSpec, PackageManager } from './types';
 
 export interface NodeProjectFiles {
   packageJsonContent: string;
@@ -56,7 +56,7 @@ function runScriptCommand(packageManager: PackageManager, script: string): strin
   }
 }
 
-export function buildNodeSpec(files: NodeProjectFiles): PipelineSpec | undefined {
+export function buildNodeSpec(files: NodeProjectFiles): BaseSpec | undefined {
   let pkg: { engines?: { node?: string }; scripts?: Record<string, string> };
   try {
     pkg = JSON.parse(files.packageJsonContent);

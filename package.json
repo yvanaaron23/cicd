@@ -1,7 +1,7 @@
 {
   "name": "ci-pipeline-generator",
   "displayName": "Archemist CI/CD Pipeline Generator",
-  "description": "Detects your project's stack (Node/npm-yarn-pnpm, Python/pip-poetry, Go, Rust) and generates a tailored GitHub Actions or GitLab CI pipeline — install, lint, test, and build steps wired up automatically.",
+  "description": "Detects your project's stack (Node, Python, Go, Rust, Java, PHP, Ruby, .NET, Docker) and generates a tailored GitHub Actions, GitLab CI, Azure Pipelines, CircleCI, or Bitbucket pipeline — install, lint, test, build, deploy, and release steps wired up automatically.",
   "version": "0.0.1",
   "publisher": "Archemist",
   "license": "MIT",
@@ -17,17 +17,29 @@
     "cd",
     "github actions",
     "gitlab ci",
+    "azure pipelines",
+    "circleci",
+    "bitbucket",
     "pipeline",
     "devops",
     "automation",
     "workflow",
+    "monorepo",
     "node",
     "python",
     "go",
-    "rust"
+    "rust",
+    "java",
+    "php",
+    "ruby",
+    "dotnet",
+    "docker"
   ],
   "activationEvents": [],
   "main": "./out/extension.js",
+  "bin": {
+    "generate-pipeline": "./out/cli.js"
+  },
   "contributes": {
     "commands": [
       {
@@ -53,15 +65,29 @@
           "enum": [
             "auto",
             "github",
-            "gitlab"
+            "gitlab",
+            "azure",
+            "circleci",
+            "bitbucket"
           ],
           "enumDescriptions": [
-            "Detect from an existing .github/workflows or .gitlab-ci.yml, or from the git remote (falls back to a manual prompt)",
+            "Detect from existing CI config or the git remote (falls back to a manual prompt)",
             "Always generate a GitHub Actions workflow",
-            "Always generate a GitLab CI pipeline"
+            "Always generate a GitLab CI pipeline",
+            "Always generate an Azure Pipelines pipeline",
+            "Always generate a CircleCI config",
+            "Always generate a Bitbucket Pipelines config"
           ],
           "default": "auto",
           "description": "Which CI provider to generate a pipeline for."
+        },
+        "ciPipelineGenerator.matrixVersions": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "description": "If non-empty, generate a build matrix across these runtime versions (Node/Python/Go only). Example: [\"18\", \"20\", \"22\"]. Empty means no matrix — just the detected/default version."
         }
       }
     }

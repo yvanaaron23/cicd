@@ -1,11 +1,11 @@
-import { PipelineSpec } from './types';
+import { BaseSpec } from './types';
 
 export interface RustProjectFiles {
   cargoTomlContent: string | null;
   rustToolchainContent: string | null;
 }
 
-export function buildRustSpec(files: RustProjectFiles): PipelineSpec | undefined {
+export function buildRustSpec(files: RustProjectFiles): BaseSpec | undefined {
   if (!files.cargoTomlContent) {
     return undefined;
   }

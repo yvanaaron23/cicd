@@ -1,15 +1,32 @@
-import { PipelineSpec } from '../detectors/types';
+import { CIStep, PipelineSpec, WorkspacePipeline } from '../detectors/types';
 
-function imageFor(spec: PipelineSpec): string {
+function usesMatrix(spec: PipelineSpec, matrixVersions: string[] | undefined): boolean {
+  return (matrixVersions?.length ?? 0) > 0 && (spec.ecosystem === 'node' || spec.ecosystem === 'python' || spec.ecosystem === 'go');
+}
+
+function imageFor(spec: PipelineSpec, matrixed: boolean): string {
+  const versionRef = matrixed ? '$VERSION' : spec.runtimeVersion;
   switch (spec.ecosystem) {
     case 'node':
-      return `node:${spec.runtimeVersion}`;
+      return `node:${versionRef}`;
     case 'python':
-      return `python:${spec.runtimeVersion}`;
+      return `python:${versionRef}`;
     case 'go':
-      return `golang:${spec.runtimeVersion}`;
+      return `golang:${versionRef}`;
     case 'rust':
       return spec.runtimeVersion === 'stable' ? 'rust:latest' : `rust:${spec.runtimeVersion}`;
+    case 'java-maven':
+      return `maven:3-eclipse-temurin-${spec.runtimeVersion}`;
+    case 'java-gradle':
+      return `gradle:jdk${spec.runtimeVersion}`;
+    case 'php':
+      return `php:${spec.runtimeVersion}`;
+    case 'ruby':
+      return `ruby:${spec.runtimeVersion}`;
+    case 'dotnet':
+      return `mcr.microsoft.com/dotnet/sdk:${spec.runtimeVersion}`;
+    case 'docker':
+      return 'docker:latest';
   }
 }
 
@@ -17,38 +34,70 @@ interface Job {
   name: string;
   stage: string;
   script: string[];
+  matrixed: boolean;
 }
 
-export function renderGitlabCi(spec: PipelineSpec): string {
-  const installScript = spec.packageManager === 'poetry' ? ['pip install poetry', spec.installStep.run] : [spec.installStep.run];
+function scriptLine(run: string, subdirectory: string): string {
+  return subdirectory ? `cd ${subdirectory} && ${run}` : run;
+}
 
-  const stages: string[] = ['install'];
-  const jobs: Job[] = [{ name: 'install', stage: 'install', script: installScript }];
+function jobsForSpec(spec: PipelineSpec, matrixVersions: string[] | undefined): { stages: string[]; jobs: Job[] } {
+  const matrixed = usesMatrix(spec, matrixVersions);
+  const prefix = spec.subdirectory ? `${spec.subdirectory.replace(/[^a-zA-Z0-9]/g, '_')}_` : '';
 
-  if (spec.lintStep) {
-    stages.push('lint');
-    jobs.push({ name: 'lint', stage: 'lint', script: [spec.lintStep.run] });
-  }
-  if (spec.testStep) {
-    stages.push('test');
-    jobs.push({ name: 'test', stage: 'test', script: [spec.testStep.run] });
-  }
-  if (spec.buildStep) {
-    stages.push('build');
-    jobs.push({ name: 'build', stage: 'build', script: [spec.buildStep.run] });
+  const namedSteps: { key: string; step: CIStep }[] = [
+    { key: 'install', step: spec.installStep },
+    ...(spec.lintStep ? [{ key: 'lint', step: spec.lintStep }] : []),
+    ...(spec.testStep ? [{ key: 'test', step: spec.testStep }] : []),
+    ...(spec.buildStep ? [{ key: 'build', step: spec.buildStep }] : []),
+    ...(spec.deployStep ? [{ key: 'deploy', step: spec.deployStep }] : []),
+    ...(spec.releaseStep ? [{ key: 'release', step: spec.releaseStep }] : []),
+  ];
+
+  const stages: string[] = [];
+  const jobs: Job[] = namedSteps.map(({ key, step }) => {
+    stages.push(key);
+    return {
+      name: `${prefix}${key}`,
+      stage: key,
+      script: [scriptLine(step.run, spec.subdirectory)],
+      matrixed,
+    };
+  });
+
+  return { stages, jobs };
+}
+
+export function renderGitlabCi(pipeline: WorkspacePipeline): string {
+  const allStages: string[] = [];
+  const allJobs: { spec: PipelineSpec; jobs: Job[] }[] = [];
+
+  for (const spec of pipeline.specs) {
+    const { stages, jobs } = jobsForSpec(spec, pipeline.matrixVersions);
+    for (const stage of stages) {
+      if (!allStages.includes(stage)) {
+        allStages.push(stage);
+      }
+    }
+    allJobs.push({ spec, jobs });
   }
 
-  const stagesBlock = stages.map((s) => `  - ${s}`).join('\n');
-  const jobsBlock = jobs
-    .map((job) => {
-      const scriptLines = job.script.map((s) => `    - ${s}`).join('\n');
-      return `${job.name}:\n  stage: ${job.stage}\n  script:\n${scriptLines}`;
-    })
+  const stagesBlock = allStages.map((s) => `  - ${s}`).join('\n');
+
+  const jobsBlock = allJobs
+    .flatMap(({ spec, jobs }) =>
+      jobs.map((job) => {
+        const image = `image: ${imageFor(spec, job.matrixed)}`;
+        const scriptLines = job.script.map((s) => `    - ${s}`).join('\n');
+        const matrixBlock = job.matrixed
+          ? `  parallel:\n    matrix:\n      - VERSION: [${(pipeline.matrixVersions ?? []).map((v) => `"${v}"`).join(', ')}]\n`
+          : '';
+        return `${job.name}:\n  ${image}\n  stage: ${job.stage}\n${matrixBlock}  script:\n${scriptLines}`;
+      }),
+    )
     .join('\n\n');
 
-  return `image: ${imageFor(spec)}
-
-stages:
+  return `stages:
 ${stagesBlock}
 
 ${jobsBlock}

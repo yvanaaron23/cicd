@@ -1,4 +1,4 @@
-import { PipelineSpec } from './types';
+import { BaseSpec } from './types';
 
 export interface PythonProjectFiles {
   requirementsTxtContent: string | null;
@@ -34,7 +34,7 @@ function detectTestCommand(files: PythonProjectFiles, isPoetry: boolean): string
   return isPoetry ? `poetry run ${base}` : base;
 }
 
-export function buildPythonSpec(files: PythonProjectFiles): PipelineSpec | undefined {
+export function buildPythonSpec(files: PythonProjectFiles): BaseSpec | undefined {
   const isPoetry = isPoetryProject(files.pyprojectContent);
   if (!isPoetry && !files.requirementsTxtContent) {
     return undefined;

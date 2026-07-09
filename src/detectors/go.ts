@@ -1,10 +1,10 @@
-import { PipelineSpec } from './types';
+import { BaseSpec } from './types';
 
 export interface GoProjectFiles {
   goModContent: string | null;
 }
 
-export function buildGoSpec(files: GoProjectFiles): PipelineSpec | undefined {
+export function buildGoSpec(files: GoProjectFiles): BaseSpec | undefined {
   if (!files.goModContent) {
     return undefined;
   }

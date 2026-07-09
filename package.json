@@ -1,0 +1,87 @@
+{
+  "name": "ci-pipeline-generator",
+  "displayName": "Archemist CI/CD Pipeline Generator",
+  "description": "Detects your project's stack (Node/npm-yarn-pnpm, Python/pip-poetry, Go, Rust) and generates a tailored GitHub Actions or GitLab CI pipeline — install, lint, test, and build steps wired up automatically.",
+  "version": "0.0.1",
+  "publisher": "Archemist",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.125.0",
+    "node": ">=18"
+  },
+  "categories": [
+    "Other"
+  ],
+  "keywords": [
+    "ci",
+    "cd",
+    "github actions",
+    "gitlab ci",
+    "pipeline",
+    "devops",
+    "automation",
+    "workflow",
+    "node",
+    "python",
+    "go",
+    "rust"
+  ],
+  "activationEvents": [],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "ciPipelineGenerator.generate",
+        "title": "Generate CI/CD Pipeline",
+        "category": "CI/CD Pipeline Generator"
+      }
+    ],
+    "menus": {
+      "explorer/context": [
+        {
+          "command": "ciPipelineGenerator.generate",
+          "when": "explorerResourceIsFolder",
+          "group": "navigation@1"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "CI/CD Pipeline Generator",
+      "properties": {
+        "ciPipelineGenerator.provider": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "github",
+            "gitlab"
+          ],
+          "enumDescriptions": [
+            "Detect from an existing .github/workflows or .gitlab-ci.yml, or from the git remote (falls back to a manual prompt)",
+            "Always generate a GitHub Actions workflow",
+            "Always generate a GitLab CI pipeline"
+          ],
+          "default": "auto",
+          "description": "Which CI provider to generate a pipeline for."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "pretest": "npm run compile && npm run lint",
+    "lint": "eslint src",
+    "test": "vscode-test"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.125.0",
+    "@types/mocha": "^10.0.10",
+    "@types/node": "24.x",
+    "typescript-eslint": "^8.61.1",
+    "eslint": "^10.5.0",
+    "typescript": "^6.0.3",
+    "@vscode/test-cli": "^0.0.15",
+    "@vscode/test-electron": "^3.0.0"
+  }
+}

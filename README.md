@@ -1,4 +1,4 @@
-# Archemist CI/CD Pipeline Generator
+# Archemist CI/CD Generator
 
 Detects your project's stack and generates a tailored **GitHub Actions**, **GitLab CI**, **Azure Pipelines**, **CircleCI**, **Bitbucket Pipelines**, **Jenkins**, **Drone CI**, or **Woodpecker CI** config — install, audit, lint, test, coverage, build, deploy, release, cache, and notification steps wired up automatically, instead of hand-writing YAML from a blank file.
 

@@ -229,7 +229,7 @@ function findMissingSteps(existingContent: string, pipeline: WorkspacePipeline):
 function appendMissingStepsComment(existingContent: string, missing: CIStep[]): string {
   const trimmed = existingContent.endsWith('\n') ? existingContent : `${existingContent}\n`;
   const lines = missing.map((s) => `# - name: ${s.name}\n#   run: ${s.run}`).join('\n');
-  return `${trimmed}\n# --- Detected steps not found in this file (Archemist CI/CD Pipeline Generator) ---\n${lines}\n`;
+  return `${trimmed}\n# --- Detected steps not found in this file (Archemist CI/CD Generator) ---\n${lines}\n`;
 }
 
 function parseRepoSlug(gitConfigContent: string, host: string): string | undefined {

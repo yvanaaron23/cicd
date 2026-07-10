@@ -5,6 +5,10 @@
   "version": "0.0.2",
   "publisher": "Archemist",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/yvanaaron23/cicd.git"
+  },
   "engines": {
     "vscode": "^1.125.0",
     "node": ">=18"

@@ -1,5 +1,5 @@
 {
-  "name": "ci-pipeline-generator",
+  "name": "archemist-ci-pipeline-generator",
   "displayName": "Archemist CI/CD Pipeline Generator",
   "description": "Detects your project's stack (Node, Python, Go, Rust, Java, PHP, Ruby, .NET, Docker) and generates a tailored GitHub Actions, GitLab CI, Azure Pipelines, CircleCI, Bitbucket, Jenkins, Drone, or Woodpecker pipeline — install, audit, lint, test, coverage, build, deploy, release, cache, and notification steps wired up automatically.",
   "version": "0.0.2",

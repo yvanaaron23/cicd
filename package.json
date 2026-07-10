@@ -1,8 +1,8 @@
 {
   "name": "ci-pipeline-generator",
   "displayName": "Archemist CI/CD Pipeline Generator",
-  "description": "Detects your project's stack (Node, Python, Go, Rust, Java, PHP, Ruby, .NET, Docker) and generates a tailored GitHub Actions, GitLab CI, Azure Pipelines, CircleCI, or Bitbucket pipeline — install, lint, test, build, deploy, and release steps wired up automatically.",
-  "version": "0.0.1",
+  "description": "Detects your project's stack (Node, Python, Go, Rust, Java, PHP, Ruby, .NET, Docker) and generates a tailored GitHub Actions, GitLab CI, Azure Pipelines, CircleCI, Bitbucket, Jenkins, Drone, or Woodpecker pipeline — install, audit, lint, test, coverage, build, deploy, release, cache, and notification steps wired up automatically.",
+  "version": "0.0.2",
   "publisher": "Archemist",
   "license": "MIT",
   "engines": {
@@ -20,11 +20,17 @@
     "azure pipelines",
     "circleci",
     "bitbucket",
+    "jenkins",
+    "drone",
+    "woodpecker",
     "pipeline",
     "devops",
     "automation",
     "workflow",
     "monorepo",
+    "cache",
+    "security audit",
+    "code coverage",
     "node",
     "python",
     "go",
@@ -46,6 +52,11 @@
         "command": "ciPipelineGenerator.generate",
         "title": "Generate CI/CD Pipeline",
         "category": "CI/CD Pipeline Generator"
+      },
+      {
+        "command": "ciPipelineGenerator.sync",
+        "title": "Sync CI/CD Pipeline (append newly-detected steps)",
+        "category": "CI/CD Pipeline Generator"
       }
     ],
     "menus": {
@@ -54,6 +65,11 @@
           "command": "ciPipelineGenerator.generate",
           "when": "explorerResourceIsFolder",
           "group": "navigation@1"
+        },
+        {
+          "command": "ciPipelineGenerator.sync",
+          "when": "explorerResourceIsFolder",
+          "group": "navigation@2"
         }
       ]
     },
@@ -68,7 +84,10 @@
             "gitlab",
             "azure",
             "circleci",
-            "bitbucket"
+            "bitbucket",
+            "jenkins",
+            "drone",
+            "woodpecker"
           ],
           "enumDescriptions": [
             "Detect from existing CI config or the git remote (falls back to a manual prompt)",
@@ -76,7 +95,10 @@
             "Always generate a GitLab CI pipeline",
             "Always generate an Azure Pipelines pipeline",
             "Always generate a CircleCI config",
-            "Always generate a Bitbucket Pipelines config"
+            "Always generate a Bitbucket Pipelines config",
+            "Always generate a Jenkinsfile",
+            "Always generate a Drone CI pipeline",
+            "Always generate a Woodpecker CI pipeline"
           ],
           "default": "auto",
           "description": "Which CI provider to generate a pipeline for."
@@ -88,6 +110,24 @@
           },
           "default": [],
           "description": "If non-empty, generate a build matrix across these runtime versions (Node/Python/Go only). Example: [\"18\", \"20\", \"22\"]. Empty means no matrix — just the detected/default version."
+        },
+        "ciPipelineGenerator.matrixOS": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "description": "If non-empty, generate a build matrix across these OSes (GitHub Actions only — no other provider has a clean hosted-runner equivalent). Example: [\"ubuntu-latest\", \"windows-latest\", \"macos-latest\"]."
+        },
+        "ciPipelineGenerator.notifications": {
+          "type": "string",
+          "enum": [
+            "none",
+            "slack",
+            "discord"
+          ],
+          "default": "none",
+          "description": "Add a failure-notification step that posts to a webhook URL read from $SLACK_WEBHOOK_URL or $DISCORD_WEBHOOK_URL."
         }
       }
     }

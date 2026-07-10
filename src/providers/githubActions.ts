@@ -1,4 +1,10 @@
-import { CIStep, PipelineSpec, WorkspacePipeline } from '../detectors/types';
+import { cacheConfigFor } from './cachePaths';
+import { CIStep, Ecosystem, PipelineSpec, WorkspacePipeline } from '../detectors/types';
+
+// GitHub's setup-node/setup-python/setup-go/setup-java/setup-ruby actions already have
+// a built-in `cache:`/`bundler-cache:` option — only these three ecosystems need an
+// explicit actions/cache step.
+const ECOSYSTEMS_NEEDING_EXPLICIT_CACHE: Ecosystem[] = ['php', 'rust', 'dotnet'];
 
 function versionValue(v: string): string {
   return v.startsWith('${{') ? v : `'${v}'`;
@@ -51,10 +57,31 @@ function commandStepLines(step: CIStep | undefined, subdirectory: string): strin
   if (subdirectory) {
     lines.push(`  working-directory: ${subdirectory}`);
   }
+  if (step.condition === 'on_failure') {
+    lines.push('  if: failure()');
+  }
   return lines;
 }
 
-function usesMatrix(spec: PipelineSpec, matrixVersions: string[] | undefined): boolean {
+function cacheStepLines(spec: PipelineSpec): string[] {
+  if (!ECOSYSTEMS_NEEDING_EXPLICIT_CACHE.includes(spec.ecosystem)) {
+    return [];
+  }
+  const cache = cacheConfigFor(spec);
+  if (!cache) {
+    return [];
+  }
+  const keyFilesGlob = cache.keyFiles.join(', ');
+  return [
+    '- uses: actions/cache@v4',
+    '  with:',
+    '    path: |',
+    ...cache.paths.map((p) => `      ${p}`),
+    `    key: \${{ runner.os }}-${spec.ecosystem}-\${{ hashFiles('${keyFilesGlob}') }}`,
+  ];
+}
+
+function usesVersionMatrix(spec: PipelineSpec, matrixVersions: string[] | undefined): boolean {
   return (matrixVersions?.length ?? 0) > 0 && (spec.ecosystem === 'node' || spec.ecosystem === 'python' || spec.ecosystem === 'go');
 }
 
@@ -62,31 +89,39 @@ function jobNameFor(spec: PipelineSpec): string {
   return spec.subdirectory ? spec.subdirectory.replace(/[^a-zA-Z0-9]/g, '_') : 'build';
 }
 
-function jobFor(spec: PipelineSpec, matrixVersions: string[] | undefined): string {
-  const matrixed = usesMatrix(spec, matrixVersions);
-  const versionRef = matrixed ? '${{ matrix.version }}' : spec.runtimeVersion;
+function jobFor(spec: PipelineSpec, matrixVersions: string[] | undefined, osMatrix: string[] | undefined): string {
+  const versionMatrixed = usesVersionMatrix(spec, matrixVersions);
+  const osMatrixed = (osMatrix?.length ?? 0) > 0;
+  const versionRef = versionMatrixed ? '${{ matrix.version }}' : spec.runtimeVersion;
+  const runsOn = osMatrixed ? '${{ matrix.os }}' : 'ubuntu-latest';
 
   const stepLines = [
     '- uses: actions/checkout@v4',
     ...setupStepLines(spec, versionRef),
+    ...cacheStepLines(spec),
     ...commandStepLines(spec.installStep, spec.subdirectory),
+    ...commandStepLines(spec.auditStep, spec.subdirectory),
     ...commandStepLines(spec.lintStep, spec.subdirectory),
     ...commandStepLines(spec.testStep, spec.subdirectory),
+    ...commandStepLines(spec.coverageStep, spec.subdirectory),
     ...commandStepLines(spec.buildStep, spec.subdirectory),
     ...commandStepLines(spec.deployStep, spec.subdirectory),
     ...commandStepLines(spec.releaseStep, spec.subdirectory),
+    ...commandStepLines(spec.notifyStep, spec.subdirectory),
   ];
 
   const indentedSteps = stepLines.map((line) => `      ${line}`).join('\n');
-  const strategyBlock = matrixed
-    ? `    strategy:\n      matrix:\n        version: [${matrixVersions!.map((v) => `'${v}'`).join(', ')}]\n`
-    : '';
+  const matrixAxes = [
+    versionMatrixed ? `        version: [${matrixVersions!.map((v) => `'${v}'`).join(', ')}]` : undefined,
+    osMatrixed ? `        os: [${osMatrix!.map((v) => `'${v}'`).join(', ')}]` : undefined,
+  ].filter((line): line is string => !!line);
+  const strategyBlock = matrixAxes.length > 0 ? `    strategy:\n      matrix:\n${matrixAxes.join('\n')}\n` : '';
 
-  return `  ${jobNameFor(spec)}:\n    runs-on: ubuntu-latest\n${strategyBlock}    steps:\n${indentedSteps}`;
+  return `  ${jobNameFor(spec)}:\n    runs-on: ${runsOn}\n${strategyBlock}    steps:\n${indentedSteps}`;
 }
 
 export function renderGitHubActionsWorkflow(pipeline: WorkspacePipeline): string {
-  const jobsBlock = pipeline.specs.map((spec) => jobFor(spec, pipeline.matrixVersions)).join('\n\n');
+  const jobsBlock = pipeline.specs.map((spec) => jobFor(spec, pipeline.matrixVersions, pipeline.osMatrix)).join('\n\n');
 
   return `name: CI
 

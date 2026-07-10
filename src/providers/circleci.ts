@@ -1,3 +1,4 @@
+import { cacheConfigFor } from './cachePaths';
 import { CIStep, PipelineSpec, WorkspacePipeline } from '../detectors/types';
 
 function imageFor(spec: PipelineSpec): string {
@@ -29,7 +30,32 @@ function runStepLines(step: CIStep | undefined, subdirectory: string): string[] 
     return [];
   }
   const command = subdirectory ? `cd ${subdirectory} && ${step.run}` : step.run;
-  return ['- run:', `    name: ${step.name}`, `    command: ${command}`];
+  const lines = ['- run:', `    name: ${step.name}`, `    command: ${command}`];
+  if (step.condition === 'on_failure') {
+    lines.push('    when: on_fail');
+  }
+  return lines;
+}
+
+function restoreCacheLines(spec: PipelineSpec): string[] {
+  const cache = cacheConfigFor(spec);
+  if (!cache) {
+    return [];
+  }
+  return ['- restore_cache:', `    key: ${spec.ecosystem}-cache-{{ checksum "${cache.keyFiles[0]}" }}`];
+}
+
+function saveCacheLines(spec: PipelineSpec): string[] {
+  const cache = cacheConfigFor(spec);
+  if (!cache) {
+    return [];
+  }
+  return [
+    '- save_cache:',
+    `    key: ${spec.ecosystem}-cache-{{ checksum "${cache.keyFiles[0]}" }}`,
+    '    paths:',
+    ...cache.paths.map((p) => `      - ${p}`),
+  ];
 }
 
 export function renderCircleCi(pipeline: WorkspacePipeline): string {
@@ -37,12 +63,17 @@ export function renderCircleCi(pipeline: WorkspacePipeline): string {
 
   const stepLines = [
     '- checkout',
+    ...restoreCacheLines(spec),
     ...runStepLines(spec.installStep, spec.subdirectory),
+    ...saveCacheLines(spec),
+    ...runStepLines(spec.auditStep, spec.subdirectory),
     ...runStepLines(spec.lintStep, spec.subdirectory),
     ...runStepLines(spec.testStep, spec.subdirectory),
+    ...runStepLines(spec.coverageStep, spec.subdirectory),
     ...runStepLines(spec.buildStep, spec.subdirectory),
     ...runStepLines(spec.deployStep, spec.subdirectory),
     ...runStepLines(spec.releaseStep, spec.subdirectory),
+    ...runStepLines(spec.notifyStep, spec.subdirectory),
   ];
 
   const indentedSteps = stepLines.map((line) => `      ${line}`).join('\n');

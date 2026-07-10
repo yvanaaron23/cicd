@@ -2,6 +2,18 @@
 
 All notable changes to the "ci-pipeline-generator" extension will be documented in this file.
 
+## [0.0.2] - 2026-07-10
+
+- Dependency caching: GitHub Actions gains explicit cache steps for PHP/Rust/.NET (Node/Python/Go/Java/Ruby already cached via their setup actions), and GitLab CI, Azure Pipelines, CircleCI, and Bitbucket Pipelines gain cache configs for every ecosystem
+- Security audit step (`npm audit`/`pip-audit`/`cargo audit`/`composer audit`/`bundler-audit`) added automatically where a safe zero-config command exists
+- Build matrix across OSes (`ciPipelineGenerator.matrixOS`) — GitHub Actions only, combinable with the existing runtime-version matrix
+- Failure-notification step (`ciPipelineGenerator.notifications`: `slack`/`discord`) rendered as each provider's native "on failure" condition
+- Coverage upload step (codecov) added when a coverage tool (jest/vitest/nyc/c8, pytest-cov/coverage) is detected
+- New **Sync CI/CD Pipeline** command: re-scans a folder that already has a pipeline and appends newly-detected steps without the Overwrite/Merge prompt
+- Three new providers: Jenkins (Jenkinsfile), Drone CI, and Woodpecker CI
+- Secrets scaffolding: a `.env.example` at the project root is turned into a "required secrets" comment block at the top of the generated pipeline
+- CLI parity: `--matrix-os`, `--notify`, and the three new providers are all available via `npx generate-pipeline`
+
 ## [0.0.1] - 2026-07-10
 
 - Initial release

@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { detectDeployStep, detectReleaseStep } from './detectors/augment';
+import { detectAuditStep, detectCoverageStep, detectDeployStep, detectNotifyStep, detectReleaseStep, NotifyKind } from './detectors/augment';
 import { buildDockerSpec } from './detectors/docker';
 import { buildDotnetSpec } from './detectors/dotnet';
 import { buildGoSpec } from './detectors/go';
@@ -139,7 +139,7 @@ async function detectBaseSpec(dirUri: vscode.Uri): Promise<BaseSpec | undefined>
   return undefined;
 }
 
-async function augmentSpec(dirUri: vscode.Uri, base: BaseSpec): Promise<BaseSpec> {
+async function augmentSpec(dirUri: vscode.Uri, base: BaseSpec, notifyKind: NotifyKind | undefined): Promise<BaseSpec> {
   const augmentFiles = {
     hasVercelJson: await exists(vscode.Uri.joinPath(dirUri, 'vercel.json')),
     hasNetlifyToml: await exists(vscode.Uri.joinPath(dirUri, 'netlify.toml')),
@@ -150,13 +150,27 @@ async function augmentSpec(dirUri: vscode.Uri, base: BaseSpec): Promise<BaseSpec
       (await exists(vscode.Uri.joinPath(dirUri, '.releaserc.json'))) ||
       (await exists(vscode.Uri.joinPath(dirUri, 'release.config.js'))),
     packageJsonContent: await tryReadText(vscode.Uri.joinPath(dirUri, 'package.json')),
+    pyprojectContent: await tryReadText(vscode.Uri.joinPath(dirUri, 'pyproject.toml')),
+    requirementsTxtContent: await tryReadText(vscode.Uri.joinPath(dirUri, 'requirements.txt')),
   };
 
   return {
     ...base,
+    auditStep: base.auditStep ?? detectAuditStep(base.ecosystem, base.packageManager),
+    coverageStep: base.coverageStep ?? detectCoverageStep(base.ecosystem, augmentFiles),
     deployStep: base.deployStep ?? detectDeployStep(augmentFiles, base.ecosystem),
     releaseStep: base.releaseStep ?? detectReleaseStep(augmentFiles),
+    notifyStep: notifyKind ? detectNotifyStep(notifyKind) : undefined,
   };
+}
+
+function parseEnvExampleKeys(content: string): string[] {
+  return content
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => line && !line.startsWith('#'))
+    .map((line) => line.match(/^([A-Za-z_][A-Za-z0-9_]*)\s*=/)?.[1])
+    .filter((key): key is string => !!key);
 }
 
 async function isMonorepo(rootUri: vscode.Uri): Promise<boolean> {
@@ -212,6 +226,8 @@ async function detectDefaultBranch(rootUri: vscode.Uri): Promise<string> {
 export async function detectWorkspacePipeline(
   rootUri: vscode.Uri,
   matrixVersions?: string[],
+  osMatrix?: string[],
+  notifyKind?: NotifyKind,
 ): Promise<WorkspacePipeline | undefined> {
   const branch = await detectDefaultBranch(rootUri);
   const specs: PipelineSpec[] = [];
@@ -221,7 +237,7 @@ export async function detectWorkspacePipeline(
     for (const { uri, relativePath } of packageDirs) {
       const base = await detectBaseSpec(uri);
       if (base) {
-        const augmented = await augmentSpec(uri, base);
+        const augmented = await augmentSpec(uri, base, notifyKind);
         specs.push({ ...augmented, subdirectory: relativePath });
       }
     }
@@ -232,9 +248,12 @@ export async function detectWorkspacePipeline(
     if (!base) {
       return undefined;
     }
-    const augmented = await augmentSpec(rootUri, base);
+    const augmented = await augmentSpec(rootUri, base, notifyKind);
     specs.push({ ...augmented, subdirectory: '' });
   }
 
-  return { specs, branch, matrixVersions };
+  const envExampleContent = await tryReadText(vscode.Uri.joinPath(rootUri, '.env.example'));
+  const requiredSecrets = envExampleContent ? parseEnvExampleKeys(envExampleContent) : undefined;
+
+  return { specs, branch, matrixVersions, osMatrix, requiredSecrets };
 }

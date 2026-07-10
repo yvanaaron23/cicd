@@ -1,3 +1,4 @@
+import { cacheConfigFor } from './cachePaths';
 import { CIStep, PipelineSpec, WorkspacePipeline } from '../detectors/types';
 
 function usesMatrix(spec: PipelineSpec, matrixVersions: string[] | undefined): boolean {
@@ -35,6 +36,8 @@ interface Job {
   stage: string;
   script: string[];
   matrixed: boolean;
+  onFailure: boolean;
+  cache?: { paths: string[]; keyFiles: string[] };
 }
 
 function scriptLine(run: string, subdirectory: string): string {
@@ -44,14 +47,18 @@ function scriptLine(run: string, subdirectory: string): string {
 function jobsForSpec(spec: PipelineSpec, matrixVersions: string[] | undefined): { stages: string[]; jobs: Job[] } {
   const matrixed = usesMatrix(spec, matrixVersions);
   const prefix = spec.subdirectory ? `${spec.subdirectory.replace(/[^a-zA-Z0-9]/g, '_')}_` : '';
+  const cache = cacheConfigFor(spec);
 
   const namedSteps: { key: string; step: CIStep }[] = [
     { key: 'install', step: spec.installStep },
+    ...(spec.auditStep ? [{ key: 'audit', step: spec.auditStep }] : []),
     ...(spec.lintStep ? [{ key: 'lint', step: spec.lintStep }] : []),
     ...(spec.testStep ? [{ key: 'test', step: spec.testStep }] : []),
+    ...(spec.coverageStep ? [{ key: 'coverage', step: spec.coverageStep }] : []),
     ...(spec.buildStep ? [{ key: 'build', step: spec.buildStep }] : []),
     ...(spec.deployStep ? [{ key: 'deploy', step: spec.deployStep }] : []),
     ...(spec.releaseStep ? [{ key: 'release', step: spec.releaseStep }] : []),
+    ...(spec.notifyStep ? [{ key: 'notify', step: spec.notifyStep }] : []),
   ];
 
   const stages: string[] = [];
@@ -62,6 +69,8 @@ function jobsForSpec(spec: PipelineSpec, matrixVersions: string[] | undefined): 
       stage: key,
       script: [scriptLine(step.run, spec.subdirectory)],
       matrixed,
+      onFailure: step.condition === 'on_failure',
+      cache,
     };
   });
 
@@ -92,7 +101,11 @@ export function renderGitlabCi(pipeline: WorkspacePipeline): string {
         const matrixBlock = job.matrixed
           ? `  parallel:\n    matrix:\n      - VERSION: [${(pipeline.matrixVersions ?? []).map((v) => `"${v}"`).join(', ')}]\n`
           : '';
-        return `${job.name}:\n  ${image}\n  stage: ${job.stage}\n${matrixBlock}  script:\n${scriptLines}`;
+        const cacheBlock = job.cache
+          ? `  cache:\n    key:\n      files:\n${job.cache.keyFiles.map((f) => `        - ${f}`).join('\n')}\n    paths:\n${job.cache.paths.map((p) => `      - ${p}`).join('\n')}\n`
+          : '';
+        const whenLine = job.onFailure ? '  when: on_failure\n' : '';
+        return `${job.name}:\n  ${image}\n  stage: ${job.stage}\n${matrixBlock}${cacheBlock}${whenLine}  script:\n${scriptLines}`;
       }),
     )
     .join('\n\n');

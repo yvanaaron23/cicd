@@ -1,3 +1,4 @@
+import { cacheConfigFor } from './cachePaths';
 import { CIStep, PipelineSpec, WorkspacePipeline } from '../detectors/types';
 
 function toolStepLines(spec: PipelineSpec): string[] {
@@ -26,7 +27,24 @@ function scriptStepLines(step: CIStep | undefined, subdirectory: string): string
   if (subdirectory) {
     lines.push(`  workingDirectory: ${subdirectory}`);
   }
+  if (step.condition === 'on_failure') {
+    lines.push('  condition: failed()');
+  }
   return lines;
+}
+
+function cacheStepLines(spec: PipelineSpec): string[] {
+  const cache = cacheConfigFor(spec);
+  if (!cache) {
+    return [];
+  }
+  const keyFilesGlob = cache.keyFiles.join(', ');
+  return [
+    '- task: Cache@2',
+    '  inputs:',
+    `    key: '${spec.ecosystem} | "$(Agent.OS)" | ${keyFilesGlob}'`,
+    `    path: ${cache.paths[0]}`,
+  ];
 }
 
 export function renderAzurePipelines(pipeline: WorkspacePipeline): string {
@@ -34,12 +52,16 @@ export function renderAzurePipelines(pipeline: WorkspacePipeline): string {
 
   const stepLines = [
     ...toolStepLines(spec),
+    ...cacheStepLines(spec),
     ...scriptStepLines(spec.installStep, spec.subdirectory),
+    ...scriptStepLines(spec.auditStep, spec.subdirectory),
     ...scriptStepLines(spec.lintStep, spec.subdirectory),
     ...scriptStepLines(spec.testStep, spec.subdirectory),
+    ...scriptStepLines(spec.coverageStep, spec.subdirectory),
     ...scriptStepLines(spec.buildStep, spec.subdirectory),
     ...scriptStepLines(spec.deployStep, spec.subdirectory),
     ...scriptStepLines(spec.releaseStep, spec.subdirectory),
+    ...scriptStepLines(spec.notifyStep, spec.subdirectory),
   ];
 
   const indentedSteps = stepLines.map((line) => `  ${line}`).join('\n');

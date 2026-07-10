@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import * as fs from 'fs';
 import * as path from 'path';
-import { detectDeployStep, detectReleaseStep } from './detectors/augment';
+import { detectAuditStep, detectCoverageStep, detectDeployStep, detectNotifyStep, detectReleaseStep, NotifyKind } from './detectors/augment';
 import { buildDockerSpec } from './detectors/docker';
 import { buildDotnetSpec } from './detectors/dotnet';
 import { buildGoSpec } from './detectors/go';
@@ -16,10 +16,12 @@ import { BaseSpec, CIStep, PipelineSpec, WorkspacePipeline } from './detectors/t
 import { renderAzurePipelines } from './providers/azurePipelines';
 import { renderBitbucketPipelines } from './providers/bitbucket';
 import { renderCircleCi } from './providers/circleci';
+import { renderDroneCi } from './providers/droneCi';
 import { renderGitHubActionsWorkflow } from './providers/githubActions';
 import { renderGitlabCi } from './providers/gitlabCi';
+import { renderJenkinsfile } from './providers/jenkinsfile';
 
-type Provider = 'github' | 'gitlab' | 'azure' | 'circleci' | 'bitbucket';
+type Provider = 'github' | 'gitlab' | 'azure' | 'circleci' | 'bitbucket' | 'jenkins' | 'drone' | 'woodpecker';
 
 function tryReadText(filePath: string): string | null {
   try {
@@ -135,7 +137,7 @@ function detectBaseSpec(dir: string): BaseSpec | undefined {
   return undefined;
 }
 
-function augmentSpec(dir: string, base: BaseSpec): BaseSpec {
+function augmentSpec(dir: string, base: BaseSpec, notifyKind: NotifyKind | undefined): BaseSpec {
   const augmentFiles = {
     hasVercelJson: exists(path.join(dir, 'vercel.json')),
     hasNetlifyToml: exists(path.join(dir, 'netlify.toml')),
@@ -144,13 +146,27 @@ function augmentSpec(dir: string, base: BaseSpec): BaseSpec {
     hasSemanticReleaseConfig:
       exists(path.join(dir, '.releaserc')) || exists(path.join(dir, '.releaserc.json')) || exists(path.join(dir, 'release.config.js')),
     packageJsonContent: tryReadText(path.join(dir, 'package.json')),
+    pyprojectContent: tryReadText(path.join(dir, 'pyproject.toml')),
+    requirementsTxtContent: tryReadText(path.join(dir, 'requirements.txt')),
   };
 
   return {
     ...base,
+    auditStep: base.auditStep ?? detectAuditStep(base.ecosystem, base.packageManager),
+    coverageStep: base.coverageStep ?? detectCoverageStep(base.ecosystem, augmentFiles),
     deployStep: base.deployStep ?? detectDeployStep(augmentFiles, base.ecosystem),
     releaseStep: base.releaseStep ?? detectReleaseStep(augmentFiles),
+    notifyStep: notifyKind ? detectNotifyStep(notifyKind) : undefined,
   };
+}
+
+function parseEnvExampleKeys(content: string): string[] {
+  return content
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => line && !line.startsWith('#'))
+    .map((line) => line.match(/^([A-Za-z_][A-Za-z0-9_]*)\s*=/)?.[1])
+    .filter((key): key is string => !!key);
 }
 
 function isMonorepo(dir: string): boolean {
@@ -200,7 +216,12 @@ function detectDefaultBranch(rootDir: string): string {
   return 'main';
 }
 
-function detectWorkspacePipeline(rootDir: string, matrixVersions?: string[]): WorkspacePipeline | undefined {
+function detectWorkspacePipeline(
+  rootDir: string,
+  matrixVersions?: string[],
+  osMatrix?: string[],
+  notifyKind?: NotifyKind,
+): WorkspacePipeline | undefined {
   const branch = detectDefaultBranch(rootDir);
   const specs: PipelineSpec[] = [];
 
@@ -208,7 +229,7 @@ function detectWorkspacePipeline(rootDir: string, matrixVersions?: string[]): Wo
     for (const { dir, relativePath } of findMonorepoPackageDirs(rootDir)) {
       const base = detectBaseSpec(dir);
       if (base) {
-        specs.push({ ...augmentSpec(dir, base), subdirectory: relativePath });
+        specs.push({ ...augmentSpec(dir, base, notifyKind), subdirectory: relativePath });
       }
     }
   }
@@ -218,10 +239,13 @@ function detectWorkspacePipeline(rootDir: string, matrixVersions?: string[]): Wo
     if (!base) {
       return undefined;
     }
-    specs.push({ ...augmentSpec(rootDir, base), subdirectory: '' });
+    specs.push({ ...augmentSpec(rootDir, base, notifyKind), subdirectory: '' });
   }
 
-  return { specs, branch, matrixVersions };
+  const envExampleContent = tryReadText(path.join(rootDir, '.env.example'));
+  const requiredSecrets = envExampleContent ? parseEnvExampleKeys(envExampleContent) : undefined;
+
+  return { specs, branch, matrixVersions, osMatrix, requiredSecrets };
 }
 
 function outputPathFor(provider: Provider): string[] {
@@ -236,6 +260,12 @@ function outputPathFor(provider: Provider): string[] {
       return ['.circleci', 'config.yml'];
     case 'bitbucket':
       return ['bitbucket-pipelines.yml'];
+    case 'jenkins':
+      return ['Jenkinsfile'];
+    case 'drone':
+      return ['.drone.yml'];
+    case 'woodpecker':
+      return ['.woodpecker.yml'];
   }
 }
 
@@ -251,13 +281,41 @@ function renderPipeline(provider: Provider, pipeline: WorkspacePipeline): string
       return renderCircleCi(pipeline);
     case 'bitbucket':
       return renderBitbucketPipelines(pipeline);
+    case 'jenkins':
+      return renderJenkinsfile(pipeline);
+    case 'drone':
+      return renderDroneCi(pipeline, 'drone');
+    case 'woodpecker':
+      return renderDroneCi(pipeline, 'woodpecker');
   }
 }
 
+function withSecretsHeader(content: string, pipeline: WorkspacePipeline, provider: Provider): string {
+  if (!pipeline.requiredSecrets || pipeline.requiredSecrets.length === 0) {
+    return content;
+  }
+  // Jenkinsfiles are Groovy, not YAML — '#' isn't a valid comment there.
+  const commentPrefix = provider === 'jenkins' ? '//' : '#';
+  const header = [
+    `${commentPrefix} Required secrets — add these in your CI provider's settings:`,
+    ...pipeline.requiredSecrets.map((key) => `${commentPrefix} - ${key}`),
+    '',
+  ].join('\n');
+  return `${header}\n${content}`;
+}
+
 function allSteps(spec: PipelineSpec): CIStep[] {
-  return [spec.installStep, spec.lintStep, spec.testStep, spec.buildStep, spec.deployStep, spec.releaseStep].filter(
-    (s): s is CIStep => !!s,
-  );
+  return [
+    spec.installStep,
+    spec.auditStep,
+    spec.lintStep,
+    spec.testStep,
+    spec.coverageStep,
+    spec.buildStep,
+    spec.deployStep,
+    spec.releaseStep,
+    spec.notifyStep,
+  ].filter((s): s is CIStep => !!s);
 }
 
 function parseArgs(argv: string[]): { positional: string[]; flags: Record<string, string> } {
@@ -278,8 +336,10 @@ function printUsage(): void {
   console.log(`Usage: generate-pipeline [targetDir] [options]
 
 Options:
-  --provider=github|gitlab|azure|circleci|bitbucket|auto  (default: auto)
+  --provider=github|gitlab|azure|circleci|bitbucket|jenkins|drone|woodpecker  (default: github)
   --matrix=v1,v2,v3           Build matrix versions (Node/Python/Go only)
+  --matrix-os=os1,os2         Build matrix OSes, e.g. ubuntu-latest,windows-latest,macos-latest (GitHub Actions only)
+  --notify=slack|discord      Add a failure-notification step
   --dry-run                   Print the generated pipeline instead of writing it
   --force                     Overwrite an existing pipeline file without asking
   --help                      Show this message
@@ -306,7 +366,12 @@ export function run(argv: string[]): void {
   }
 
   const matrixVersions = flags.matrix ? flags.matrix.split(',').map((v) => v.trim()) : undefined;
-  const pipeline = detectWorkspacePipeline(rootDir, matrixVersions);
+  const osMatrix = flags['matrix-os'] ? flags['matrix-os'].split(',').map((v) => v.trim()) : undefined;
+  if (flags.notify !== undefined && flags.notify !== 'slack' && flags.notify !== 'discord') {
+    fail(`unknown --notify value "${flags.notify}" (expected slack or discord)`);
+  }
+  const notifyKind = flags.notify as NotifyKind | undefined;
+  const pipeline = detectWorkspacePipeline(rootDir, matrixVersions, osMatrix, notifyKind);
   if (!pipeline) {
     fail('could not detect a recognized project in ' + rootDir);
   }
@@ -316,7 +381,7 @@ export function run(argv: string[]): void {
     fail(`unknown provider "${provider}"`);
   }
 
-  const content = renderPipeline(provider, pipeline);
+  const content = withSecretsHeader(renderPipeline(provider, pipeline), pipeline, provider);
 
   if (flags['dry-run'] !== undefined) {
     console.log(content);

@@ -5,6 +5,7 @@ import { detectAuditStep, detectCoverageStep, detectDeployStep, detectNotifyStep
 import { buildDockerSpec } from './detectors/docker';
 import { buildDotnetSpec } from './detectors/dotnet';
 import { buildGoSpec } from './detectors/go';
+import { assignJobNames } from './detectors/jobNaming';
 import { buildJavaGradleSpec } from './detectors/javaGradle';
 import { buildJavaMavenSpec } from './detectors/javaMaven';
 import { buildNodeSpec } from './detectors/node';
@@ -35,7 +36,12 @@ function exists(filePath: string): boolean {
   return fs.existsSync(filePath);
 }
 
-function detectBaseSpec(dir: string): BaseSpec | undefined {
+// Collects a spec for every manifest present, rather than stopping at the first match —
+// hybrid projects (e.g. a Laravel app with package.json for the Vite frontend alongside
+// composer.json for the PHP backend) have more than one ecosystem at the same root.
+function detectAllBaseSpecs(dir: string): BaseSpec[] {
+  const specs: BaseSpec[] = [];
+
   const packageJsonContent = tryReadText(path.join(dir, 'package.json'));
   if (packageJsonContent) {
     const nodeSpec = buildNodeSpec({
@@ -46,7 +52,7 @@ function detectBaseSpec(dir: string): BaseSpec | undefined {
       nvmrcContent: tryReadText(path.join(dir, '.nvmrc')),
     });
     if (nodeSpec) {
-      return nodeSpec;
+      specs.push(nodeSpec);
     }
   }
 
@@ -59,7 +65,7 @@ function detectBaseSpec(dir: string): BaseSpec | undefined {
       pythonVersionFileContent: tryReadText(path.join(dir, '.python-version')),
     });
     if (pythonSpec) {
-      return pythonSpec;
+      specs.push(pythonSpec);
     }
   }
 
@@ -67,7 +73,7 @@ function detectBaseSpec(dir: string): BaseSpec | undefined {
   if (goModContent) {
     const goSpec = buildGoSpec({ goModContent });
     if (goSpec) {
-      return goSpec;
+      specs.push(goSpec);
     }
   }
 
@@ -78,7 +84,7 @@ function detectBaseSpec(dir: string): BaseSpec | undefined {
       rustToolchainContent: tryReadText(path.join(dir, 'rust-toolchain.toml')),
     });
     if (rustSpec) {
-      return rustSpec;
+      specs.push(rustSpec);
     }
   }
 
@@ -86,7 +92,7 @@ function detectBaseSpec(dir: string): BaseSpec | undefined {
   if (pomXmlContent) {
     const mavenSpec = buildJavaMavenSpec({ pomXmlContent });
     if (mavenSpec) {
-      return mavenSpec;
+      specs.push(mavenSpec);
     }
   }
 
@@ -94,7 +100,7 @@ function detectBaseSpec(dir: string): BaseSpec | undefined {
   if (buildGradleContent) {
     const gradleSpec = buildJavaGradleSpec({ buildGradleContent });
     if (gradleSpec) {
-      return gradleSpec;
+      specs.push(gradleSpec);
     }
   }
 
@@ -102,7 +108,7 @@ function detectBaseSpec(dir: string): BaseSpec | undefined {
   if (composerJsonContent) {
     const phpSpec = buildPhpSpec({ composerJsonContent });
     if (phpSpec) {
-      return phpSpec;
+      specs.push(phpSpec);
     }
   }
 
@@ -113,7 +119,7 @@ function detectBaseSpec(dir: string): BaseSpec | undefined {
       rubyVersionFileContent: tryReadText(path.join(dir, '.ruby-version')),
     });
     if (rubySpec) {
-      return rubySpec;
+      specs.push(rubySpec);
     }
   }
 
@@ -126,15 +132,20 @@ function detectBaseSpec(dir: string): BaseSpec | undefined {
   if (csprojFile) {
     const dotnetSpec = buildDotnetSpec({ hasProjectFile: true, csprojContent: tryReadText(path.join(dir, csprojFile)) });
     if (dotnetSpec) {
-      return dotnetSpec;
+      specs.push(dotnetSpec);
     }
   }
 
-  if (exists(path.join(dir, 'Dockerfile'))) {
-    return buildDockerSpec({ hasDockerfile: true });
+  // Docker only becomes its own job when nothing else was found — alongside another
+  // ecosystem it's already handled as a deploy step (see detectDeployStep).
+  if (specs.length === 0 && exists(path.join(dir, 'Dockerfile'))) {
+    const dockerSpec = buildDockerSpec({ hasDockerfile: true });
+    if (dockerSpec) {
+      specs.push(dockerSpec);
+    }
   }
 
-  return undefined;
+  return specs;
 }
 
 function augmentSpec(dir: string, base: BaseSpec, notifyKind: NotifyKind | undefined): BaseSpec {
@@ -227,20 +238,23 @@ function detectWorkspacePipeline(
 
   if (isMonorepo(rootDir)) {
     for (const { dir, relativePath } of findMonorepoPackageDirs(rootDir)) {
-      const base = detectBaseSpec(dir);
-      if (base) {
+      for (const base of detectAllBaseSpecs(dir)) {
         specs.push({ ...augmentSpec(dir, base, notifyKind), subdirectory: relativePath });
       }
     }
   }
 
   if (specs.length === 0) {
-    const base = detectBaseSpec(rootDir);
-    if (!base) {
+    const bases = detectAllBaseSpecs(rootDir);
+    if (bases.length === 0) {
       return undefined;
     }
-    specs.push({ ...augmentSpec(rootDir, base, notifyKind), subdirectory: '' });
+    for (const base of bases) {
+      specs.push({ ...augmentSpec(rootDir, base, notifyKind), subdirectory: '' });
+    }
   }
+
+  assignJobNames(specs);
 
   const envExampleContent = tryReadText(path.join(rootDir, '.env.example'));
   const requiredSecrets = envExampleContent ? parseEnvExampleKeys(envExampleContent) : undefined;

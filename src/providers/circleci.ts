@@ -59,6 +59,8 @@ function saveCacheLines(spec: PipelineSpec): string[] {
 }
 
 export function renderCircleCi(pipeline: WorkspacePipeline): string {
+  // CircleCI here is single-job only — with a monorepo or a hybrid-stack root
+  // (multiple ecosystems detected in the same directory), only the first spec is used.
   const spec = pipeline.specs[0];
 
   const stepLines = [

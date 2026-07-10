@@ -3,6 +3,7 @@ import { detectAuditStep, detectCoverageStep, detectDeployStep, detectNotifyStep
 import { buildDockerSpec } from './detectors/docker';
 import { buildDotnetSpec } from './detectors/dotnet';
 import { buildGoSpec } from './detectors/go';
+import { assignJobNames } from './detectors/jobNaming';
 import { buildJavaGradleSpec } from './detectors/javaGradle';
 import { buildJavaMavenSpec } from './detectors/javaMaven';
 import { buildNodeSpec } from './detectors/node';
@@ -38,7 +39,12 @@ async function listDirectory(uri: vscode.Uri): Promise<[string, vscode.FileType]
   }
 }
 
-async function detectBaseSpec(dirUri: vscode.Uri): Promise<BaseSpec | undefined> {
+// Collects a spec for every manifest present, rather than stopping at the first match —
+// hybrid projects (e.g. a Laravel app with package.json for the Vite frontend alongside
+// composer.json for the PHP backend) have more than one ecosystem at the same root.
+async function detectAllBaseSpecs(dirUri: vscode.Uri): Promise<BaseSpec[]> {
+  const specs: BaseSpec[] = [];
+
   const packageJsonContent = await tryReadText(vscode.Uri.joinPath(dirUri, 'package.json'));
   if (packageJsonContent) {
     const nodeSpec = buildNodeSpec({
@@ -49,7 +55,7 @@ async function detectBaseSpec(dirUri: vscode.Uri): Promise<BaseSpec | undefined>
       nvmrcContent: await tryReadText(vscode.Uri.joinPath(dirUri, '.nvmrc')),
     });
     if (nodeSpec) {
-      return nodeSpec;
+      specs.push(nodeSpec);
     }
   }
 
@@ -62,7 +68,7 @@ async function detectBaseSpec(dirUri: vscode.Uri): Promise<BaseSpec | undefined>
       pythonVersionFileContent: await tryReadText(vscode.Uri.joinPath(dirUri, '.python-version')),
     });
     if (pythonSpec) {
-      return pythonSpec;
+      specs.push(pythonSpec);
     }
   }
 
@@ -70,7 +76,7 @@ async function detectBaseSpec(dirUri: vscode.Uri): Promise<BaseSpec | undefined>
   if (goModContent) {
     const goSpec = buildGoSpec({ goModContent });
     if (goSpec) {
-      return goSpec;
+      specs.push(goSpec);
     }
   }
 
@@ -81,7 +87,7 @@ async function detectBaseSpec(dirUri: vscode.Uri): Promise<BaseSpec | undefined>
       rustToolchainContent: await tryReadText(vscode.Uri.joinPath(dirUri, 'rust-toolchain.toml')),
     });
     if (rustSpec) {
-      return rustSpec;
+      specs.push(rustSpec);
     }
   }
 
@@ -89,7 +95,7 @@ async function detectBaseSpec(dirUri: vscode.Uri): Promise<BaseSpec | undefined>
   if (pomXmlContent) {
     const mavenSpec = buildJavaMavenSpec({ pomXmlContent });
     if (mavenSpec) {
-      return mavenSpec;
+      specs.push(mavenSpec);
     }
   }
 
@@ -99,7 +105,7 @@ async function detectBaseSpec(dirUri: vscode.Uri): Promise<BaseSpec | undefined>
   if (buildGradleContent) {
     const gradleSpec = buildJavaGradleSpec({ buildGradleContent });
     if (gradleSpec) {
-      return gradleSpec;
+      specs.push(gradleSpec);
     }
   }
 
@@ -107,7 +113,7 @@ async function detectBaseSpec(dirUri: vscode.Uri): Promise<BaseSpec | undefined>
   if (composerJsonContent) {
     const phpSpec = buildPhpSpec({ composerJsonContent });
     if (phpSpec) {
-      return phpSpec;
+      specs.push(phpSpec);
     }
   }
 
@@ -118,7 +124,7 @@ async function detectBaseSpec(dirUri: vscode.Uri): Promise<BaseSpec | undefined>
       rubyVersionFileContent: await tryReadText(vscode.Uri.joinPath(dirUri, '.ruby-version')),
     });
     if (rubySpec) {
-      return rubySpec;
+      specs.push(rubySpec);
     }
   }
 
@@ -128,15 +134,20 @@ async function detectBaseSpec(dirUri: vscode.Uri): Promise<BaseSpec | undefined>
     const csprojContent = await tryReadText(vscode.Uri.joinPath(dirUri, csprojName[0]));
     const dotnetSpec = buildDotnetSpec({ hasProjectFile: true, csprojContent });
     if (dotnetSpec) {
-      return dotnetSpec;
+      specs.push(dotnetSpec);
     }
   }
 
-  if (await exists(vscode.Uri.joinPath(dirUri, 'Dockerfile'))) {
-    return buildDockerSpec({ hasDockerfile: true });
+  // Docker only becomes its own job when nothing else was found — alongside another
+  // ecosystem it's already handled as a deploy step (see detectDeployStep).
+  if (specs.length === 0 && (await exists(vscode.Uri.joinPath(dirUri, 'Dockerfile')))) {
+    const dockerSpec = buildDockerSpec({ hasDockerfile: true });
+    if (dockerSpec) {
+      specs.push(dockerSpec);
+    }
   }
 
-  return undefined;
+  return specs;
 }
 
 async function augmentSpec(dirUri: vscode.Uri, base: BaseSpec, notifyKind: NotifyKind | undefined): Promise<BaseSpec> {
@@ -235,8 +246,8 @@ export async function detectWorkspacePipeline(
   if (await isMonorepo(rootUri)) {
     const packageDirs = await findMonorepoPackageDirs(rootUri);
     for (const { uri, relativePath } of packageDirs) {
-      const base = await detectBaseSpec(uri);
-      if (base) {
+      const bases = await detectAllBaseSpecs(uri);
+      for (const base of bases) {
         const augmented = await augmentSpec(uri, base, notifyKind);
         specs.push({ ...augmented, subdirectory: relativePath });
       }
@@ -244,13 +255,17 @@ export async function detectWorkspacePipeline(
   }
 
   if (specs.length === 0) {
-    const base = await detectBaseSpec(rootUri);
-    if (!base) {
+    const bases = await detectAllBaseSpecs(rootUri);
+    if (bases.length === 0) {
       return undefined;
     }
-    const augmented = await augmentSpec(rootUri, base, notifyKind);
-    specs.push({ ...augmented, subdirectory: '' });
+    for (const base of bases) {
+      const augmented = await augmentSpec(rootUri, base, notifyKind);
+      specs.push({ ...augmented, subdirectory: '' });
+    }
   }
+
+  assignJobNames(specs);
 
   const envExampleContent = await tryReadText(vscode.Uri.joinPath(rootUri, '.env.example'));
   const requiredSecrets = envExampleContent ? parseEnvExampleKeys(envExampleContent) : undefined;

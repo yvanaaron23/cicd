@@ -4,6 +4,9 @@ All notable changes to the "ci-pipeline-generator" extension will be documented 
 
 ## [0.0.2] - 2026-07-10
 
+- Fixed: hybrid-stack projects (e.g. a Laravel app with `package.json` for the Vite frontend and `composer.json` for the PHP backend, both at the root) were silently reduced to a single ecosystem — whichever manifest was checked first — dropping the other stack's steps entirely (real-world case: a `composer test` running `php artisan test` was never included). Every manifest present in a directory now gets its own job, named after its ecosystem to avoid collisions with the existing per-package job naming (root and monorepo packages alike). Azure Pipelines, CircleCI, and Bitbucket Pipelines remain single-job and keep using the first-detected ecosystem, matching their existing monorepo limitation.
+
+
 - Dependency caching: GitHub Actions gains explicit cache steps for PHP/Rust/.NET (Node/Python/Go/Java/Ruby already cached via their setup actions), and GitLab CI, Azure Pipelines, CircleCI, and Bitbucket Pipelines gain cache configs for every ecosystem
 - Security audit step (`npm audit`/`pip-audit`/`cargo audit`/`composer audit`/`bundler-audit`) added automatically where a safe zero-config command exists
 - Build matrix across OSes (`ciPipelineGenerator.matrixOS`) — GitHub Actions only, combinable with the existing runtime-version matrix

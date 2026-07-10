@@ -32,7 +32,7 @@ function commandFor(step: CIStep, subdirectory: string): string {
 }
 
 function stepsForSpec(spec: PipelineSpec): string[] {
-  const prefix = spec.subdirectory ? `${spec.subdirectory.replace(/[^a-zA-Z0-9]/g, '_')}-` : '';
+  const prefix = spec.jobName ? `${spec.jobName}-` : spec.subdirectory ? `${spec.subdirectory.replace(/[^a-zA-Z0-9]/g, '_')}-` : '';
   const image = imageFor(spec);
 
   const named: { name: string; step: CIStep | undefined }[] = [

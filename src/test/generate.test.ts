@@ -566,4 +566,65 @@ suite('ciPipelineGenerator.generate integration', () => {
     assert.ok(lastMessage?.includes("doesn't exist yet"));
     assert.ok(!fs.existsSync(path.join(projectDir, '.github')));
   });
+
+  test('detects multiple ecosystems at the same root and generates one job per ecosystem (hybrid stack)', async () => {
+    // e.g. a Laravel app: package.json for the Vite frontend (no test/lint script),
+    // composer.json for the PHP backend (a real phpunit test script) — both at the root,
+    // not a monorepo. Previously only the first-detected ecosystem (node) got a job,
+    // silently dropping the PHP tests.
+    const projectDir = makeDir(tmpRoot, 'hybrid-laravel-vite-project');
+    fs.writeFileSync(
+      path.join(projectDir, 'package.json'),
+      JSON.stringify({ private: true, scripts: { build: 'vite build', dev: 'vite' } }),
+    );
+    fs.writeFileSync(
+      path.join(projectDir, 'composer.json'),
+      JSON.stringify({ require: { php: '^8.3' }, scripts: { test: 'phpunit' } }),
+    );
+
+    await withStub(vscode.window, 'showQuickPick', providerPickStub('github'), async () => {
+      await withStub(vscode.window, 'showInformationMessage', confirmWriteStub(), async () => {
+        await vscode.commands.executeCommand('ciPipelineGenerator.generate', vscode.Uri.file(projectDir));
+      });
+    });
+
+    const content = fs.readFileSync(path.join(projectDir, '.github', 'workflows', 'ci.yml'), 'utf8');
+    assert.match(content, /^ {2}node:/m, 'should have a distinct node job');
+    assert.match(content, /^ {2}php:/m, 'should have a distinct php job');
+    assert.match(content, /run: npm run build/);
+    assert.match(content, /run: composer run test/);
+  });
+
+  test('hybrid stack also disambiguates GitLab CI job names by ecosystem', async () => {
+    const projectDir = makeDir(tmpRoot, 'hybrid-laravel-vite-gitlab-project');
+    fs.writeFileSync(path.join(projectDir, 'package.json'), JSON.stringify({ private: true, scripts: { build: 'vite build' } }));
+    fs.writeFileSync(
+      path.join(projectDir, 'composer.json'),
+      JSON.stringify({ require: { php: '^8.3' }, scripts: { test: 'phpunit' } }),
+    );
+
+    await withStub(vscode.window, 'showQuickPick', providerPickStub('gitlab'), async () => {
+      await withStub(vscode.window, 'showInformationMessage', confirmWriteStub(), async () => {
+        await vscode.commands.executeCommand('ciPipelineGenerator.generate', vscode.Uri.file(projectDir));
+      });
+    });
+
+    const content = fs.readFileSync(path.join(projectDir, '.gitlab-ci.yml'), 'utf8');
+    assert.match(content, /^node_build:/m);
+    assert.match(content, /^php_test:/m);
+  });
+
+  test('a lone ecosystem at the root still gets the plain "build" job name (no regression)', async () => {
+    const projectDir = makeDir(tmpRoot, 'single-ecosystem-project');
+    fs.writeFileSync(path.join(projectDir, 'package.json'), JSON.stringify({ scripts: { test: 'jest' } }));
+
+    await withStub(vscode.window, 'showQuickPick', providerPickStub('github'), async () => {
+      await withStub(vscode.window, 'showInformationMessage', confirmWriteStub(), async () => {
+        await vscode.commands.executeCommand('ciPipelineGenerator.generate', vscode.Uri.file(projectDir));
+      });
+    });
+
+    const content = fs.readFileSync(path.join(projectDir, '.github', 'workflows', 'ci.yml'), 'utf8');
+    assert.match(content, /^ {2}build:/m);
+  });
 });

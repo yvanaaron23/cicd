@@ -86,7 +86,7 @@ function usesVersionMatrix(spec: PipelineSpec, matrixVersions: string[] | undefi
 }
 
 function jobNameFor(spec: PipelineSpec): string {
-  return spec.subdirectory ? spec.subdirectory.replace(/[^a-zA-Z0-9]/g, '_') : 'build';
+  return spec.jobName ?? (spec.subdirectory ? spec.subdirectory.replace(/[^a-zA-Z0-9]/g, '_') : 'build');
 }
 
 function jobFor(spec: PipelineSpec, matrixVersions: string[] | undefined, osMatrix: string[] | undefined): string {

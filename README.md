@@ -32,6 +32,10 @@ For Node/PHP, the `lint`/`test`/`build` scripts (if present in the manifest) bec
 
 If `turbo.json`, `nx.json`, `lerna.json`, `pnpm-workspace.yaml`, or a `workspaces` field in `package.json` is found, each package under `packages/*` and `apps/*` gets detected independently and becomes its own job in the generated pipeline.
 
+### Hybrid stacks
+
+A directory isn't limited to one ecosystem: if it has more than one manifest (e.g. a Laravel app with `package.json` for the Vite frontend *and* `composer.json` for the PHP backend), each one becomes its own job, named after its ecosystem (`node`, `php`, ...) instead of being silently dropped in favor of whichever manifest is checked first. This applies at the workspace root and inside each monorepo package. Azure Pipelines, CircleCI, and Bitbucket Pipelines only support a single job, so for those three providers only the first-detected ecosystem is used — same limitation as for monorepos.
+
 ### Deploy & release steps
 
 Independently of the ecosystem: a `vercel.json` or `netlify.toml` adds a deploy step; a lone `Dockerfile` alongside another ecosystem adds a build-and-push step; a `.changeset` folder or semantic-release config/dependency adds a release step.

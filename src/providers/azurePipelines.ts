@@ -48,6 +48,8 @@ function cacheStepLines(spec: PipelineSpec): string[] {
 }
 
 export function renderAzurePipelines(pipeline: WorkspacePipeline): string {
+  // Azure Pipelines here is single-job only — with a monorepo or a hybrid-stack root
+  // (multiple ecosystems detected in the same directory), only the first spec is used.
   const spec = pipeline.specs[0];
 
   const stepLines = [

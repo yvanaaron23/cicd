@@ -46,6 +46,8 @@ function afterScriptLines(step: CIStep | undefined, subdirectory: string): strin
 const cacheNameFor = (spec: PipelineSpec): string => `${spec.ecosystem}-cache`;
 
 export function renderBitbucketPipelines(pipeline: WorkspacePipeline): string {
+  // Bitbucket Pipelines here is single-job only — with a monorepo or a hybrid-stack root
+  // (multiple ecosystems detected in the same directory), only the first spec is used.
   const spec = pipeline.specs[0];
   const cache = cacheConfigFor(spec);
 

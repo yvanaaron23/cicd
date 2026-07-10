@@ -11,7 +11,7 @@ function stageFor(name: string, step: CIStep, subdirectory: string): string {
 }
 
 function stagesForSpec(spec: PipelineSpec): string[] {
-  const prefix = spec.subdirectory ? `${spec.subdirectory} - ` : '';
+  const prefix = spec.jobName ? `${spec.jobName} - ` : spec.subdirectory ? `${spec.subdirectory} - ` : '';
   const named: { name: string; step: CIStep | undefined }[] = [
     { name: 'Install', step: spec.installStep },
     { name: 'Audit', step: spec.auditStep },

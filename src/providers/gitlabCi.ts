@@ -46,7 +46,7 @@ function scriptLine(run: string, subdirectory: string): string {
 
 function jobsForSpec(spec: PipelineSpec, matrixVersions: string[] | undefined): { stages: string[]; jobs: Job[] } {
   const matrixed = usesMatrix(spec, matrixVersions);
-  const prefix = spec.subdirectory ? `${spec.subdirectory.replace(/[^a-zA-Z0-9]/g, '_')}_` : '';
+  const prefix = spec.jobName ? `${spec.jobName}_` : spec.subdirectory ? `${spec.subdirectory.replace(/[^a-zA-Z0-9]/g, '_')}_` : '';
   const cache = cacheConfigFor(spec);
 
   const namedSteps: { key: string; step: CIStep }[] = [

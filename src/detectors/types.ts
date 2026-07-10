@@ -26,6 +26,12 @@ export interface PipelineSpec {
   runtimeVersion: string;
   /** '' for the workspace root, else a relative path (monorepo package). */
   subdirectory: string;
+  /**
+   * Set only when multiple ecosystems were detected in the same directory (e.g. a Laravel
+   * app with package.json for the Vite frontend alongside composer.json for the PHP
+   * backend) — disambiguates job names since `subdirectory` alone would collide.
+   */
+  jobName?: string;
   installStep: CIStep;
   auditStep?: CIStep;
   lintStep?: CIStep;
